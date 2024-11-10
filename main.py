@@ -1,6 +1,98 @@
+import chess
+import numpy as np
+import pandas as pd
+import pickle
+from sklearn.linear_model import SGDRegressor
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+from functools import lru_cache
 
+# Piece-square tables
+PAWN_TABLE = [
+    0,  0,  0,  0,  0,  0,  0,  0,
+    50, 50, 50, 50, 50, 50, 50, 50,
+    10, 10, 20, 30, 30, 20, 10, 10,
+    5,  5, 10, 25, 25, 10,  5,  5,
+    0,  0,  0, 20, 20,  0,  0,  0,
+    5, -5,-10,  0,  0,-10, -5,  5,
+    5, 10, 10,-20,-20, 10, 10,  5,
+    0,  0,  0,  0,  0,  0,  0,  0
+]
 
-# Piece-square tables and PIECE_VALUES remain unchanged
+KNIGHT_TABLE = [
+    -50,-40,-30,-30,-30,-30,-40,-50,
+    -40,-20,  0,  0,  0,  0,-20,-40,
+    -30,  0, 10, 15, 15, 10,  0,-30,
+    -30,  5, 15, 20, 20, 15,  5,-30,
+    -30,  0, 15, 20, 20, 15,  0,-30,
+    -30,  5, 10, 15, 15, 10,  5,-30,
+    -40,-20,  0,  5,  5,  0,-20,-40,
+    -50,-40,-30,-30,-30,-30,-40,-50
+]
+
+BISHOP_TABLE = [
+    -20,-10,-10,-10,-10,-10,-10,-20,
+    -10,  0,  0,  0,  0,  0,  0,-10,
+    -10,  0,  5, 10, 10,  5,  0,-10,
+    -10,  5,  5, 10, 10,  5,  5,-10,
+    -10,  0, 10, 10, 10, 10,  0,-10,
+    -10, 10, 10, 10, 10, 10, 10,-10,
+    -10,  5,  0,  0,  0,  0,  5,-10,
+    -20,-10,-10,-10,-10,-10,-10,-20
+]
+
+ROOK_TABLE = [
+    0,  0,  0,  0,  0,  0,  0,  0,
+    5, 10, 10, 10, 10, 10, 10,  5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    0,  0,  0,  5,  5,  0,  0,  0
+]
+
+QUEEN_TABLE = [
+    -20,-10,-10, -5, -5,-10,-10,-20,
+    -10,  0,  0,  0,  0,  0,  0,-10,
+    -10,  0,  5,  5,  5,  5,  0,-10,
+    -5,  0,  5,  5,  5,  5,  0, -5,
+    0,  0,  5,  5,  5,  5,  0, -5,
+    -10,  5,  5,  5,  5,  5,  0,-10,
+    -10,  0,  5,  0,  0,  0,  0,-10,
+    -20,-10,-10, -5, -5,-10,-10,-20
+]
+
+KING_MIDDLE_GAME_TABLE = [
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -20,-30,-30,-40,-40,-30,-30,-20,
+    -10,-20,-20,-20,-20,-20,-20,-10,
+    20, 20,  0,  0,  0,  0, 20, 20,
+    20, 30, 10,  0,  0, 10, 30, 20
+]
+
+KING_END_GAME_TABLE = [
+    -50,-40,-30,-20,-20,-30,-40,-50,
+    -30,-20,-10,  0,  0,-10,-20,-30,
+    -30,-10, 20, 30, 30, 20,-10,-30,
+    -30,-10, 30, 40, 40, 30,-10,-30,
+    -30,-10, 30, 40, 40, 30,-10,-30,
+    -30,-10, 20, 30, 30, 20,-10,-30,
+    -30,-30,  0,  0,  0,  0,-30,-30,
+    -50,-30,-30,-30,-30,-30,-30,-50
+]
+
+PIECE_VALUES = {
+    chess.PAWN: 100,
+    chess.KNIGHT: 320,
+    chess.BISHOP: 330,
+    chess.ROOK: 500,
+    chess.QUEEN: 900,
+    chess.KING: 20000
+}
 
 class State:
     def __init__(self, board=None):
@@ -136,7 +228,7 @@ class MinimaxAlgorithm:
                (black_queens == 1 and black_pieces <= 1 and white_queens == 0)
 
 class ImprovedChessBot:
-    def __init__(self, depth=1):  # Reduced depth for training
+    def __init__(self, depth=1):
         self.depth = depth
         self.model = SGDRegressor(max_iter=1000, tol=1e-3, warm_start=True)
         self.feature_weights = np.ones(7)  # Initial weights for piece values and position
@@ -183,26 +275,34 @@ class ImprovedChessBot:
         features = self.extract_features(board)
         return np.dot(features, self.feature_weights)
 
+    @staticmethod
+    def process_puzzle(args):
+        puzzle, depth = args
+        board = chess.Board(puzzle['fen'])
+        correct_move = chess.Move.from_uci(puzzle['moves'][0])
+        
+        state = State(board)
+        minimax = MinimaxAlgorithm(state, depth)
+        _, bot_move = minimax.minimax(depth, state.board.turn)
+        
+        return board, bot_move == correct_move
+
     def process_puzzle_batch(self, puzzles):
         features_batch = []
         targets_batch = []
         correct_moves = 0
 
-        for puzzle in puzzles:
-            board = chess.Board(puzzle['fen'])
-            correct_move = chess.Move.from_uci(puzzle['moves'][0])
-            
-            state = State(board)
-            minimax = MinimaxAlgorithm(state, self.depth)
-            _, bot_move = minimax.minimax(self.depth, state.board.turn, evaluate_fn=self.evaluate_position)
-            
+        with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+            results = list(executor.map(self.process_puzzle, [(puzzle, self.depth) for puzzle in puzzles]))
+
+        for board, is_correct in results:
             features = self.extract_features(board)
-            target = 1 if bot_move == correct_move else -1
+            target = 1 if is_correct else -1
             
             features_batch.append(features)
             targets_batch.append(target)
             
-            if bot_move == correct_move:
+            if is_correct:
                 correct_moves += 1
 
         return np.array(features_batch), np.array(targets_batch), correct_moves
@@ -210,8 +310,7 @@ class ImprovedChessBot:
     def train(self, puzzle_file, epochs=5, batch_size=1000):
         puzzles = self.load_puzzles(puzzle_file)
         total_puzzles = len(puzzles)
-        sovled_puzzles = 0
-
+        
         for epoch in range(epochs):
             print(f"Epoch {epoch + 1}/{epochs}")
             np.random.shuffle(puzzles)
@@ -225,9 +324,7 @@ class ImprovedChessBot:
                 self.feature_weights = self.model.coef_
                 
                 total_correct += correct_moves
-                sovled_puzzles+= len(batch)
-                print(f"Solved {sovled_puzzles}/{total_puzzles} puzzles.")
-
+                
                 if (i + batch_size) % 10000 == 0 or (i + batch_size) >= total_puzzles:
                     accuracy = total_correct / (i + batch_size)
                     print(f"Processed {i + batch_size}/{total_puzzles} puzzles. Current accuracy: {accuracy:.2%}")
@@ -246,8 +343,8 @@ class ImprovedChessBot:
     @staticmethod
     def load_puzzles(file_path):
         df = pd.read_csv(file_path)
-        return [{'fen': row['FEN'], 'moves': row['Moves'].split()} for _, row in df.iterrows() if type(row['Moves']) != float]
-    
+        return [{'fen': row['FEN'], 'moves': row['Moves'].split()} for _, row in df.iterrows()]
+
     def save_model(self, file_path):
         with open(file_path, 'wb') as f:
             pickle.dump(self, f)
@@ -280,8 +377,8 @@ def play_against_bot(bot):
 
 if __name__ == "__main__":
     # Training the bot
-    bot = ImprovedChessBot(depth=1)  
-    puzzle_file = "lichess_db_puzzle.csv"  
+    bot = ImprovedChessBot(depth=2)  
+    puzzle_file = "lichess_db_puzzle_1.csv"  
     bot.train(puzzle_file, epochs=5, batch_size=1000)
 
     # Saving the trained model
