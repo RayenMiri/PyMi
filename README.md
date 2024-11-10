@@ -46,7 +46,7 @@ Batching Puzzle Training
 Instead of training on each puzzle individually, process puzzles in batches. This approach can help update the model more efficiently, especially when using a stochastic gradient descent (SGD) model like SGDRegressor. To implement batching, accumulate puzzle features and target labels in a batch, then call partial_fit once per batch, which could save time compared to updating weights puzzle-by-puzzle.
 
 Parallel Processing of Puzzles
-Leverage parallel processing by running multiple puzzles through the training process concurrently. Python’s multiprocessing library or libraries like joblib can be helpful here. For example, train on different subsets of puzzles simultaneously and then combine the learned parameters.
+Leverage parallel processing by running multiple puzzles through the training process concurrently. Python’s multiprocessing library or libraries like joblib (for now we'll be using multiprocessing library we may use joblib next time) can be helpful here
 
 Using Efficient Vectorized Operations
 Minimize any looping within extract_features and calculate_position_score methods. Use NumPy vectorized operations wherever possible to avoid repeated iteration over the board, which could lead to significant speedup.
@@ -61,12 +61,10 @@ Downsampling Puzzles or Epochs
 Although five epochs are good for improving model robustness, reducing the number of epochs might be an option if each epoch takes too long. Alternatively, downsample puzzles by randomly selecting a subset for training each epoch.
 
 Utilize a Faster Model Variant
-The SGDRegressor can be slow with high-dimensional inputs. For faster convergence, consider other fast, linear models like Ridge with a warm start or even try gradient-boosting methods, which might give better performance and faster training.
+The SGDRegressor can be slow with high-dimensional inputs. For faster convergence, we will consider other fast, linear models like Ridge with a warm start or even try gradient-boosting methods, which might give better performance and faster training but now we'll see the performance of SGDRegressor
 
 Preprocessing and Feature Engineering
 Further streamline extract_features to reduce redundancy or consider engineered features that are faster to compute while still encapsulating critical information for decision-making.
 
 Model Compression
 After training on all epochs, consider pruning less impactful features or re-weighting using a compressed feature representation if any redundant patterns are identified.
-
-These methods can significantly reduce the time it takes to complete each epoch, making it possible to train on the entire dataset more efficiently.
