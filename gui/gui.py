@@ -1,6 +1,7 @@
 import pygame
 import chess
-import chess.engine
+from AlphaBeta import AlphaBeta 
+from State import State
 
 # Initialize Pygame
 pygame.init()
@@ -28,6 +29,8 @@ clock = pygame.time.Clock()
 # Initialize the board
 board = chess.Board()
 
+ai = AlphaBeta(depth=5)  
+
 # Load images
 load_images()
 
@@ -51,17 +54,24 @@ def draw_pieces(screen, board):
                 screen.blit(piece_image, pygame.Rect(chess.square_file(square) * SQ_SIZE, (7 - chess.square_rank(square)) * SQ_SIZE, SQ_SIZE, SQ_SIZE))
             else:
                 print(f"Image for {piece_key} not found.")  
-                
+
+def ai_move(board):
+    state = State(board)
+    move = ai.search(state)
+    return move
+
 # Main game loop
 def main():
     running = True
     selected_square = None
     player_clicks = []
+    player_turn = False  
+
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN:
+            elif event.type == pygame.MOUSEBUTTONDOWN and player_turn:
                 location = pygame.mouse.get_pos()
                 col = location[0] // SQ_SIZE
                 row = location[1] // SQ_SIZE
@@ -74,15 +84,27 @@ def main():
                     move = chess.Move(player_clicks[0], player_clicks[1])
                     if move in board.legal_moves:
                         board.push(move)
+                        player_turn = False  
                     selected_square = None
                     player_clicks = []
+
+        if not player_turn and not board.is_game_over():
+            ai_move_obj = ai_move(board)
+            if ai_move_obj:
+                board.push(ai_move_obj)
+                player_turn = True  
 
         draw_board(screen)
         draw_pieces(screen, board)
         pygame.display.flip()
         clock.tick(MAX_FPS)
 
-    pygame.quit()
+        if board.is_game_over():
+            print("Game Over")
+            print(f"Result: {board.result()}")
+            running = False
 
+    pygame.quit()
+    
 if __name__ == "__main__":
     main()
