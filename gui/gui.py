@@ -29,7 +29,7 @@ clock = pygame.time.Clock()
 # Initialize the board
 board = chess.Board()
 
-ai = AlphaBeta(depth=5)  
+ai = AlphaBeta(depth=4)  
 
 # Load images
 load_images()
@@ -65,7 +65,7 @@ def main():
     running = True
     selected_square = None
     player_clicks = []
-    player_turn = False  
+    player_turn = True  
 
     while running:
         for event in pygame.event.get():

@@ -64,11 +64,11 @@ class AlphaBeta:
             return best_move, min_eval
 
 if __name__ == "__main__":
-    board = chess.Board("rnbqkb1r/pppppppp/5n2/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq - 0 2")
+    board = chess.Board("rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2")
     
     state = State(board)
     
-    alpha_beta = AlphaBeta(5)
+    alpha_beta = AlphaBeta(3)
     
     best_move = alpha_beta.search(state)
     print(f"Best move found: {board.san(best_move)}")
