@@ -29,7 +29,7 @@ clock = pygame.time.Clock()
 # Initialize the board
 board = chess.Board()
 
-ai = AlphaBeta(depth=4)  
+ai = AlphaBeta(max_depth=3)  
 
 # Load images
 load_images()

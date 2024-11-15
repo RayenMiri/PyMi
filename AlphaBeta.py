@@ -1,6 +1,6 @@
 import chess
 from State import State
-from Evaulator import Evaluator
+from Evaluator import Evaluator
 from opening_book import OpeningBook
 
 class AlphaBeta:
@@ -64,14 +64,15 @@ class AlphaBeta:
             return best_move, min_eval
 
 if __name__ == "__main__":
-    board = chess.Board("rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2")
+    board = chess.Board("2r2bkr/ppp1pnpp/5p2/3B4/3P3P/1Q2PP2/PP1B1P2/2KR3R w - - 1 16")
     
     state = State(board)
     
-    alpha_beta = AlphaBeta(3)
+    alpha_beta = AlphaBeta(4)
     
     best_move = alpha_beta.search(state)
     print(f"Best move found: {board.san(best_move)}")
+    
     
     evaluator = Evaluator()
     evaluation = evaluator.evaluate(board)
