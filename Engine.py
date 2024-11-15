@@ -78,7 +78,7 @@ def search(fen):
     print(fen)
     board = chess.Board(fen=fen)
     state = State(board)
-    alpha_beta = AlphaBeta(3)
+    alpha_beta = AlphaBeta(4)
     best_move = alpha_beta.search(state)
     return best_move
 

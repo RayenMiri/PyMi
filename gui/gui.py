@@ -29,7 +29,7 @@ clock = pygame.time.Clock()
 # Initialize the board
 board = chess.Board()
 
-ai = AlphaBeta(max_depth=3)  
+ai = AlphaBeta(depth=4)  
 
 # Load images
 load_images()
@@ -102,7 +102,7 @@ def main():
         if board.is_game_over():
             print("Game Over")
             print(f"Result: {board.result()}")
-            running = False
+            #running = False
 
     pygame.quit()
     

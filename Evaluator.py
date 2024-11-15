@@ -90,6 +90,23 @@ class Evaluator:
     EARLY_QUEEN_PENALTY = -20
     BLOCKED_CENTER_PAWN_PENALTY = -15
     TEMPO_VALUE = 33  
+    HANGING_PIECE_PENALTY = 50
+    LOOSE_PIECE_PENALTY = 20
+    UNDEFENDED_PAWN_PENALTY = 10
+    CASTLING_BONUS = 50
+    CASTLED_BONUS = 100
+    DELAYED_CASTLING_PENALTY = -30  
+    KING_EXPOSURE_PENALTY = -20  
+    ATTACKER_WEIGHTS = {
+        chess.PAWN: 1,
+        chess.KNIGHT: 2,
+        chess.BISHOP: 2,
+        chess.ROOK: 3,
+        chess.QUEEN: 4
+    }
+    PAWN_SHIELD_BONUS = 10  
+    PAWN_STORM_PENALTY = -5 
+
     
     @staticmethod
     def evaluate(board):
@@ -117,6 +134,7 @@ class Evaluator:
 
         score += Evaluator.mobility(board)
         score += Evaluator.king_safety(board)
+        score += Evaluator.castling_evaluation(board)
         score += Evaluator.pawn_structure(board)
         score += Evaluator.center_control(board)
         score += Evaluator.development(board)
@@ -148,22 +166,32 @@ class Evaluator:
         return white_moves - black_moves
 
     @staticmethod
-    def evaluate_king_safety(board, king_square, color):
-        safety_score = 0
-        
-        # Pawn shield
-        pawn_shield_score = Evaluator.evaluate_pawn_shield(board, king_square, color)
-        safety_score += pawn_shield_score
-        
-        # King attackers
-        attacker_score = Evaluator.evaluate_king_attackers(board, king_square, color)
-        safety_score -= attacker_score
-        
-        # Open files near king
-        open_file_score = Evaluator.evaluate_open_files(board, king_square, color)
-        safety_score -= open_file_score
-        
-        return safety_score
+    def castling_evaluation(board):
+        score = 0
+        is_endgame = Evaluator.is_endgame(board)
+
+        # Evaluate white's castling situation
+        if board.has_castling_rights(chess.WHITE):
+            score += Evaluator.CASTLING_BONUS
+        elif Evaluator.has_castled(board, chess.WHITE):
+            score += Evaluator.CASTLED_BONUS
+        elif not is_endgame:
+            score += Evaluator.DELAYED_CASTLING_PENALTY
+
+        # Evaluate black's castling situation
+        if board.has_castling_rights(chess.BLACK):
+            score -= Evaluator.CASTLING_BONUS
+        elif Evaluator.has_castled(board, chess.BLACK):
+            score -= Evaluator.CASTLED_BONUS
+        elif not is_endgame:
+            score -= Evaluator.DELAYED_CASTLING_PENALTY
+
+        return score
+
+    @staticmethod
+    def has_castled(board, color):
+        king_file = chess.square_file(board.king(color))
+        return king_file in [2, 6]  # King on c-file or g-file indicates castling
 
     @staticmethod
     def king_safety(board):
@@ -174,7 +202,90 @@ class Evaluator:
         black_king_safety = Evaluator.evaluate_king_safety(board, black_king_square, chess.BLACK)
         
         return white_king_safety - black_king_safety
-    
+
+    @staticmethod
+    def evaluate_king_safety(board, king_square, color):
+        safety_score = 0
+        
+        # Pawn shield and storm
+        safety_score += Evaluator.evaluate_pawn_shield(board, king_square, color)
+        
+        # King attackers
+        safety_score -= Evaluator.evaluate_king_attackers(board, king_square, color)
+        
+        # Open files near king
+        safety_score -= Evaluator.evaluate_open_files(board, king_square, color)
+        
+        # King exposure
+        safety_score += Evaluator.evaluate_king_exposure(board, king_square, color)
+        
+        return safety_score
+
+    @staticmethod
+    def evaluate_pawn_shield(board, king_square, color):
+        score = 0
+        rank = chess.square_rank(king_square)
+        file = chess.square_file(king_square)
+        
+        for f in range(max(0, file - 1), min(8, file + 2)):
+            if color == chess.WHITE:
+                for r in range(rank, min(8, rank + 3)):
+                    piece = board.piece_at(chess.square(f, r))
+                    if piece == chess.Piece(chess.PAWN, chess.WHITE):
+                        score += Evaluator.PAWN_SHIELD_BONUS
+                    elif piece == chess.Piece(chess.PAWN, chess.BLACK):
+                        score += Evaluator.PAWN_STORM_PENALTY
+            else:
+                for r in range(rank, max(-1, rank - 3), -1):
+                    piece = board.piece_at(chess.square(f, r))
+                    if piece == chess.Piece(chess.PAWN, chess.BLACK):
+                        score += Evaluator.PAWN_SHIELD_BONUS
+                    elif piece == chess.Piece(chess.PAWN, chess.WHITE):
+                        score += Evaluator.PAWN_STORM_PENALTY
+        
+        return score
+
+    @staticmethod
+    def evaluate_king_attackers(board, king_square, color):
+        score = 0
+        opponent_color = not color
+        
+        attackers = board.attackers(opponent_color, king_square)
+        for attacker_square in attackers:
+            attacker = board.piece_at(attacker_square)
+            score += Evaluator.ATTACKER_WEIGHTS[attacker.piece_type]
+        
+        return score * 10  # Multiply by 10 to give more weight to attackers
+
+    @staticmethod
+    def evaluate_open_files(board, king_square, color):
+        score = 0
+        file = chess.square_file(king_square)
+        
+        for f in range(max(0, file - 1), min(8, file + 2)):
+            if Evaluator.is_open_file(board, f):
+                score += 20  # Penalty for each open file near the king
+        
+        return score
+
+    @staticmethod
+    def evaluate_king_exposure(board, king_square, color):
+        score = 0
+        is_endgame = Evaluator.is_endgame(board)
+        
+        if not is_endgame:
+            # Penalize exposed king in middle game
+            if color == chess.WHITE and chess.square_rank(king_square) > 1:
+                score += Evaluator.KING_EXPOSURE_PENALTY
+            elif color == chess.BLACK and chess.square_rank(king_square) < 6:
+                score += Evaluator.KING_EXPOSURE_PENALTY
+        else:
+            # Encourage king activity in endgame
+            central_distance = abs(3.5 - chess.square_file(king_square)) + abs(3.5 - chess.square_rank(king_square))
+            score -= central_distance * 5  # Bonus for centralized king in endgame
+        
+        return score
+
     @staticmethod
     def pawn_structure(board):
         # Simplified pawn structure evaluation
@@ -339,12 +450,49 @@ class Evaluator:
             if board.piece_type_at(square) == chess.PAWN:
                 return False
         return True
-board = chess.Board()  
-board.set_fen("rnbqkb1r/pppppppp/8/8/3Pn3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3")  
-eval = Evaluator()
-print(eval.evaluate(board))
+    
+    @staticmethod
+    def evaluate_hanging_pieces(board):
+        score = 0
+        is_endgame = Evaluator.is_endgame(board)
+        white_queen_present = any(board.pieces(chess.QUEEN, chess.WHITE))
+        black_queen_present = any(board.pieces(chess.QUEEN, chess.BLACK))
+        
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece and piece.piece_type != chess.KING:
+                defenders = board.attackers(piece.color , square)
+                attackers = board.attackers(not piece.color , square)
+            
+                if attackers and not defenders :
+                    penalty = Evaluator.HANGING_PIECE_PENALTY
+                    if piece.type != chess.PAWN:
+                        if piece.color != chess.WHITE:
+                            score -= penalty
+                            if black_queen_present:
+                                score -= penalty // 2
+                        else:
+                            score += penalty
+                            if white_queen_present:
+                                score += penalty // 2
+                    else:
+                        #undefended pawn
+                        penalty = Evaluator.UNDEFENDED_PAWN_PENALTY
+                        if piece.color != chess.WHITE:
+                            score -= penalty
+                        else:
+                            score += penalty
+                elif not defenders and piece.piece_type != chess.PAWN:
+                    penalty = Evaluator.LOOSE_PIECE_PENALTY
+                    if piece.color != chess.WHITE:
+                            score -= penalty
+                    else:
+                        score += penalty
+            if is_endgame:
+                score = score * 3
+            return score
+        
+eval = Evaluator()  
+print(eval.evaluate(chess.Board("r2q1r2/ppp3k1/2n1b2p/3p2pn/7P/2N1PN2/PPP2PP1/R2QKB1R w KQ - 0 13")))
 
-board.set_fen("rnbqkb1r/ppppppp1/5n2/7p/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 3")  
-eval = Evaluator()
-print(eval.evaluate(board))
-
+print(eval.evaluate(chess.Board("r2q1rk1/ppp3n1/2n1b2p/3p2p1/7P/2N1PN2/PPP2PP1/R2QKB1R w KQ - 0 13")))
