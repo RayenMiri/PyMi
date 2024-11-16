@@ -88,7 +88,7 @@ def perform_move(from_sq, to_sq):
     pg.click()
     pg.moveTo(to_sq)
     pg.click()
-    time.sleep(3)
+    #time.sleep(3)
 
 # Function to parse SAN move to square coordinates
 def san_to_coords(board, san_move):

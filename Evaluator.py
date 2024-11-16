@@ -99,10 +99,11 @@ class Evaluator:
     KING_EXPOSURE_PENALTY = -20  
     ATTACKER_WEIGHTS = {
         chess.PAWN: 1,
-        chess.KNIGHT: 2,
-        chess.BISHOP: 2,
-        chess.ROOK: 3,
-        chess.QUEEN: 4
+        chess.KNIGHT: 3.2,
+        chess.BISHOP: 1.3,
+        chess.ROOK: 5,
+        chess.QUEEN: 9,
+        chess.KING : 1
     }
     PAWN_SHIELD_BONUS = 10  
     PAWN_STORM_PENALTY = -5 
@@ -139,6 +140,7 @@ class Evaluator:
         score += Evaluator.center_control(board)
         score += Evaluator.development(board)
         score += Evaluator.checkmate_threat(board)
+        score += Evaluator.evaluate_hanging_pieces(board)
 
         return score
     
@@ -159,11 +161,13 @@ class Evaluator:
 
     @staticmethod
     def mobility(board):
-        white_moves = len(list(board.legal_moves))
+        score = 0
+        white_moves = len(list(board.generate_legal_moves()))
         board.turn = not board.turn
-        black_moves = len(list(board.legal_moves))
+        black_moves = len(list(board.generate_legal_moves()))
         board.turn = not board.turn
-        return white_moves - black_moves
+        score += (white_moves - black_moves) * Evaluator.TEMPO_VALUE
+        return score
 
     @staticmethod
     def castling_evaluation(board):
@@ -206,19 +210,24 @@ class Evaluator:
     @staticmethod
     def evaluate_king_safety(board, king_square, color):
         safety_score = 0
-        
-        # Pawn shield and storm
-        safety_score += Evaluator.evaluate_pawn_shield(board, king_square, color)
-        
-        # King attackers
-        safety_score -= Evaluator.evaluate_king_attackers(board, king_square, color)
-        
-        # Open files near king
-        safety_score -= Evaluator.evaluate_open_files(board, king_square, color)
-        
-        # King exposure
-        safety_score += Evaluator.evaluate_king_exposure(board, king_square, color)
-        
+        shield_bonus = 0
+        storm_penalty = 0
+        king_rank = chess.square_rank(king_square)
+        king_file = chess.square_file(king_square)
+
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece and piece.color == color and piece.piece_type == chess.PAWN:
+                if abs(chess.square_rank(square) - king_rank) <= 1 and abs(chess.square_file(square) - king_file) <= 1:
+                    shield_bonus += Evaluator.PAWN_SHIELD_BONUS
+
+                # Penalize pawns advancing in front of the king
+                if color == chess.WHITE and chess.square_rank(square) > king_rank:
+                    storm_penalty += Evaluator.PAWN_STORM_PENALTY
+                elif color == chess.BLACK and chess.square_rank(square) < king_rank:
+                    storm_penalty += Evaluator.PAWN_STORM_PENALTY
+
+        safety_score += shield_bonus + storm_penalty
         return safety_score
 
     @staticmethod
@@ -288,12 +297,13 @@ class Evaluator:
 
     @staticmethod
     def pawn_structure(board):
-        # Simplified pawn structure evaluation
-        white_pawns = board.pieces(chess.PAWN, chess.WHITE)
-        black_pawns = board.pieces(chess.PAWN, chess.BLACK)
-        white_doubled_pawns = sum([1 for square in white_pawns if board.piece_at(square + 8) == chess.PAWN])
-        black_doubled_pawns = sum([1 for square in black_pawns if board.piece_at(square - 8) == chess.PAWN])
-        return black_doubled_pawns - white_doubled_pawns
+        score = 0
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece and piece.piece_type == chess.PAWN:
+                if board.is_attacked_by(not piece.color, square):
+                    score -= Evaluator.UNDEFENDED_PAWN_PENALTY if piece.color == chess.WHITE else -Evaluator.UNDEFENDED_PAWN_PENALTY
+        return score
 
     @staticmethod
     def center_control(board):
@@ -455,44 +465,62 @@ class Evaluator:
     def evaluate_hanging_pieces(board):
         score = 0
         is_endgame = Evaluator.is_endgame(board)
-        white_queen_present = any(board.pieces(chess.QUEEN, chess.WHITE))
-        black_queen_present = any(board.pieces(chess.QUEEN, chess.BLACK))
         
         for square in chess.SQUARES:
             piece = board.piece_at(square)
-            if piece and piece.piece_type != chess.KING:
-                defenders = board.attackers(piece.color , square)
-                attackers = board.attackers(not piece.color , square)
-            
-                if attackers and not defenders :
-                    penalty = Evaluator.HANGING_PIECE_PENALTY
-                    if piece.type != chess.PAWN:
-                        if piece.color != chess.WHITE:
-                            score -= penalty
-                            if black_queen_present:
-                                score -= penalty // 2
-                        else:
-                            score += penalty
-                            if white_queen_present:
-                                score += penalty // 2
+            if piece:
+                defenders = board.attackers(piece.color, square)
+                attackers = board.attackers(not piece.color, square)
+                
+                if attackers:
+                    attacker_count = len(attackers)
+                    defender_count = len(defenders)
+                    
+                    # Evaluate the exchange
+                    attacker_values = sorted([Evaluator.PIECE_VALUES[board.piece_at(attacker).piece_type] for attacker in attackers])
+                    defender_values = sorted([Evaluator.PIECE_VALUES[board.piece_at(defender).piece_type] for defender in defenders] + [Evaluator.PIECE_VALUES[piece.piece_type]])
+                    
+                    exchange_value = sum(defender_values[:attacker_count]) - sum(attacker_values[:defender_count])
+                    
+                    if exchange_value < 0:
+                        penalty = abs(exchange_value)
+                        if piece.color == chess.WHITE:
+                            score += penalty //2
+                        else: 
+                            score -= penalty //2
+                
+                elif not defenders and piece.piece_type != chess.KING:
+                    penalty = Evaluator.LOOSE_PIECE_PENALTY * Evaluator.PIECE_VALUES[piece.piece_type] // 100
+                    if piece.color == chess.WHITE:
+                        score -= penalty //2
                     else:
-                        #undefended pawn
-                        penalty = Evaluator.UNDEFENDED_PAWN_PENALTY
-                        if piece.color != chess.WHITE:
-                            score -= penalty
-                        else:
-                            score += penalty
-                elif not defenders and piece.piece_type != chess.PAWN:
-                    penalty = Evaluator.LOOSE_PIECE_PENALTY
-                    if piece.color != chess.WHITE:
-                            score -= penalty
-                    else:
-                        score += penalty
-            if is_endgame:
-                score = score * 3
-            return score
+                        score += penalty //2
         
-eval = Evaluator()  
-print(eval.evaluate(chess.Board("r2q1r2/ppp3k1/2n1b2p/3p2pn/7P/2N1PN2/PPP2PP1/R2QKB1R w KQ - 0 13")))
+        if is_endgame:
+            score *= 1.2  # Slightly increase the importance of hanging pieces in endgame
+        
+        return score 
+    
+    @staticmethod
+    def evaluate_forks(board):
+        fork_score = 0
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece and piece.color == board.turn:  # Focus on the active player's pieces
+                attackers = board.attackers(piece.color, square)
+                for target_square in attackers:
+                    target_piece = board.piece_at(target_square)
+                    if target_piece and target_piece.color != piece.color:
+                        # If the piece attacks multiple valuable targets, assign a score
+                        fork_score += (
+                            Evaluator.PIECE_VALUES.get(target_piece.piece_type, 0) // 2
+                        )
+        return fork_score
 
-print(eval.evaluate(chess.Board("r2q1rk1/ppp3n1/2n1b2p/3p2p1/7P/2N1PN2/PPP2PP1/R2QKB1R w KQ - 0 13")))
+eval = Evaluator()  
+print(eval.evaluate(chess.Board("rnbq1b1r/1p1n1ppp/p2pk3/3N1PP1/8/4B3/PPP2P1P/R2QKB1R b KQ - 0 11")))
+
+print(eval.evaluate(chess.Board("rnbq1b1r/1p1n1ppp/p2pk3/5pP1/4PN2/4B3/PPP2P1P/R2QKB1R b KQ - 3 11")))
+
+print(eval.evaluate(chess.Board("r3qrk1/pppb2P1/2n5/3p4/8/2N1PN2/PPP2PP1/R2QKB1R b KQ - 0 15")))
+

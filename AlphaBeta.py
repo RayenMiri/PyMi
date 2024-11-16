@@ -11,7 +11,7 @@ class AlphaBeta:
         self.opening_book = OpeningBook()
         self.transposition_table = {}
         self.history_heuristic = {}
-        self.killer_moves = [[None, None] for _ in range(depth + 1)]  # Changed this line
+        self.killer_moves = [[None, None] for _ in range(depth + 1)]
 
     def search(self, state):
         board = state.board
@@ -26,7 +26,6 @@ class AlphaBeta:
 
     def alpha_beta(self, state, depth, alpha, beta, maximizing_player):
         serialized_state = state.serialize().tobytes()
-
         # Check the transposition table
         if serialized_state in self.transposition_table:
             tt_entry = self.transposition_table[serialized_state]
@@ -40,13 +39,8 @@ class AlphaBeta:
 
         best_move = None
         moves = list(board.legal_moves)
-
-        # Apply move ordering techniques
-        tt_entry = self.transposition_table.get(serialized_state)
-        if tt_entry and tt_entry[0]:
-            tt_move = tt_entry[0]
-            moves.sort(key=lambda move: move == tt_move, reverse=True)
-
+        
+        # Move ordering
         moves = sorted(
             moves,
             key=lambda move: (
@@ -62,15 +56,18 @@ class AlphaBeta:
             max_eval = float('-inf')
             for move in moves:
                 board.push(move)
+                if board.is_repetition(3) or board.is_fifty_moves():
+                    board.pop()
+                    continue
+
                 next_state = State(board)
+                
+                # Late Move Reduction
+                reduced_depth = depth - 1
+                if not board.is_capture(move) and not board.is_check():
+                    reduced_depth = max(0, depth - 2)
 
-                # Late Move Reduction (LMR) for non-critical moves
-                if not board.is_capture(move) and not board.is_check() and move != best_move:
-                    reduced_depth = depth - 2
-                    _, eval_score = self.alpha_beta(next_state, max(0, reduced_depth), alpha, beta, False)
-                else:
-                    _, eval_score = self.alpha_beta(next_state, depth - 1, alpha, beta, False)
-
+                _, eval_score = self.alpha_beta(next_state, reduced_depth, alpha, beta, False)
                 board.pop()
 
                 if eval_score > max_eval:
@@ -93,15 +90,18 @@ class AlphaBeta:
             min_eval = float('inf')
             for move in moves:
                 board.push(move)
+                if board.is_repetition(3) or board.is_fifty_moves():
+                    board.pop()
+                    continue
+
                 next_state = State(board)
+                
+                # Late Move Reduction
+                reduced_depth = depth - 1
+                if not board.is_capture(move) and not board.is_check():
+                    reduced_depth = max(0, depth - 2)
 
-                # Late Move Reduction (LMR) for non-critical moves
-                if not board.is_capture(move) and not board.is_check() and move != best_move:
-                    reduced_depth = depth - 2
-                    _, eval_score = self.alpha_beta(next_state, max(0, reduced_depth), alpha, beta, True)
-                else:
-                    _, eval_score = self.alpha_beta(next_state, depth - 1, alpha, beta, True)
-
+                _, eval_score = self.alpha_beta(next_state, reduced_depth, alpha, beta, True)
                 board.pop()
 
                 if eval_score < min_eval:
@@ -122,9 +122,10 @@ class AlphaBeta:
             return best_move, min_eval
 
 if __name__ == "__main__":
-    board = chess.Board("r2q1rk1/ppp3B1/2n1b2p/3p2pn/7P/2N1PN2/PPP2PP1/R2QKB1R b KQ - 0 12")
+    # Initialize the chess board with a given position
+    board = chess.Board("rnbq1b1r/1p1n1ppp/p2pk3/3N1pP1/4P3/4B3/PPP2P1P/R2QKB1R w KQ - 2 11")
     state = State(board)
-    alpha_beta = AlphaBeta(4)
+    alpha_beta = AlphaBeta(5)
 
     # Start the timer
     start_time = time.time()
@@ -142,9 +143,11 @@ if __name__ == "__main__":
     evaluation = evaluator.evaluate(board)
     print(f"\nPosition evaluation: {evaluation}")
 
+    # Apply the best move to the board
     board.push(best_move)
     print(f"\nPosition after best move:")
     print(board)
 
+    # Evaluate the new position after the best move
     new_evaluation = evaluator.evaluate(board)
     print(f"\nNew position evaluation: {new_evaluation}")

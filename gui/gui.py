@@ -29,7 +29,7 @@ clock = pygame.time.Clock()
 # Initialize the board
 board = chess.Board()
 
-ai = AlphaBeta(depth=4)  
+ai = AlphaBeta(depth=5)  
 
 # Load images
 load_images()
@@ -55,9 +55,26 @@ def draw_pieces(screen, board):
             else:
                 print(f"Image for {piece_key} not found.")  
 
+# Highlight legal moves
+def highlight_squares(screen, board, selected_square):
+    if selected_square is not None:
+        legal_moves = [move for move in board.legal_moves if move.from_square == selected_square]
+        for move in legal_moves:
+            to_square = move.to_square
+            col = chess.square_file(to_square)
+            row = 7 - chess.square_rank(to_square)
+            # Draw a circle to indicate the legal move
+            pygame.draw.circle(screen, pygame.Color('blue'), 
+                               (col * SQ_SIZE + SQ_SIZE // 2, row * SQ_SIZE + SQ_SIZE // 2), SQ_SIZE // 6)
+
+
 def ai_move(board):
     state = State(board)
     move = ai.search(state)
+    if not move:
+        print("AI move is None.")
+    elif move not in board.legal_moves:
+        print(f"AI move {move} is not legal.")
     return move
 
 # Main game loop
@@ -89,12 +106,18 @@ def main():
                     player_clicks = []
 
         if not player_turn and not board.is_game_over():
-            ai_move_obj = ai_move(board)
-            if ai_move_obj:
+            try:
+                ai_move_obj = ai_move(board)
                 board.push(ai_move_obj)
-                player_turn = True  
+               
+                   
+            except Exception as e:
+                print(f"Error during AI move: {e}")
+                player_turn = True  # Fallback to avoid game freeze
+
 
         draw_board(screen)
+        highlight_squares(screen, board, selected_square)  # Highlight the legal moves
         draw_pieces(screen, board)
         pygame.display.flip()
         clock.tick(MAX_FPS)
@@ -102,9 +125,8 @@ def main():
         if board.is_game_over():
             print("Game Over")
             print(f"Result: {board.result()}")
-            #running = False
+            running = False
 
-    pygame.quit()
     
 if __name__ == "__main__":
     main()
