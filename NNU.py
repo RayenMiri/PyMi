@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import os
+from Evaluator import Evaluator
 
 # ============================
 # Neural Network Definition
@@ -13,15 +14,14 @@ import os
 class ChessNN(nn.Module):
     def __init__(self):
         super(ChessNN, self).__init__()
-        # Input: 64 squares, 12 pieces (one-hot encoding per piece), total 768 features
         self.fc1 = nn.Linear(768, 512)
         self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 1)  # Output: single evaluation score
+        self.fc3 = nn.Linear(256, 1)  # Output: raw evaluation score
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
-        x = torch.tanh(self.fc3(x))  # Output: value between -1 (black win) and 1 (white win)
+        x = self.fc3(x)  # Raw output, no activation
         return x
 
 # ============================
@@ -47,19 +47,19 @@ def evaluate_board(nn_model, board):
     with torch.no_grad():
         return nn_model(tensor_input).item()
 
-def legal_moves_with_evaluation(board, nn_model):
-    """Returns a list of legal moves with their evaluations."""
+def legal_moves_with_evaluation(board, nn_model, evaluator):
+    """Returns a list of legal moves with their evaluations using the Evaluator."""
     moves = list(board.legal_moves)
     evaluations = []
     for move in moves:
         board.push(move)
-        evaluations.append(evaluate_board(nn_model, board))
+        evaluations.append(evaluator.evaluate(board))  # Use Evaluator to get the score
         board.pop()
     return list(zip(moves, evaluations))
 
-def select_best_move(board, nn_model):
+def select_best_move(board, nn_model, evaluator):
     """Selects the best move using the neural network."""
-    moves_evaluated = legal_moves_with_evaluation(board, nn_model)
+    moves_evaluated = legal_moves_with_evaluation(board, nn_model, evaluator)
     if board.turn:  # White's turn, maximize
         best_move = max(moves_evaluated, key=lambda x: x[1])[0]
     else:  # Black's turn, minimize
@@ -96,13 +96,14 @@ def load_model(nn_model, optimizer, path=MODEL_SAVE_PATH):
 # ============================
 # Game Logic and Training
 # ============================
-def play_game(nn_model, max_moves=100):
+def play_game(nn_model, evaluator, max_moves=100):
     """Simulates a single game between two NN players."""
-    board = chess.Board()
+    board = chess.Board("r3qrk1/pppb2P1/2n5/3p4/8/2N1PN2/PPP2PP1/R2QKB1R b KQ - 0 15")
     game = chess.pgn.Game()
     node = game
     while not board.is_game_over() and len(list(board.move_stack)) < max_moves:
-        move = select_best_move(board, nn_model)
+        move = select_best_move(board, nn_model, evaluator)
+        print(board.san(move))
         board.push(move)
         print(board)
         node = node.add_variation(move)
@@ -111,9 +112,46 @@ def play_game(nn_model, max_moves=100):
     print(board)
     return result
 
-def train_nn(nn_model, optimizer, epochs=50, batch_size=32):
-    """Trains the neural network using self-play games."""
-    criterion = nn.MSELoss()
+def play_game_VS_NN(nn_model, evaluator, max_moves=100):
+    """Simulates a single game where you play against the NN."""
+    board = chess.Board()
+    game = chess.pgn.Game()
+    node = game
+    
+    while not board.is_game_over() and len(list(board.move_stack)) < max_moves:
+        print(board)
+        
+        if board.turn:  # White's turn (Human)
+            move = get_human_move(board)
+            board.push(move)
+            node = node.add_variation(move)
+        else:  # Black's turn (NN)
+            move = select_best_move(board, nn_model, evaluator)
+            print(f"NN plays: {move}")
+            board.push(move)
+            node = node.add_variation(move)
+    
+    result = board.result()
+    print(f"Game over! Result: {result}")
+    print(board)
+    return result
+
+def get_human_move(board):
+    """Gets the move from the human player."""
+    while True:
+        move = input("Enter your move (e.g., e2e4): ")
+        try:
+            chess_move = board.parse_san(move)
+            if chess_move in board.legal_moves:
+                return chess_move
+            else:
+                print("Invalid move! Try again.")
+        except ValueError:
+            print("Invalid format! Try again.")
+
+def train_nn(nn_model, optimizer, evaluator, epochs=50, batch_size=32):
+    """Trains the neural network using self-play games and Evaluator for target scores."""
+    criterion = nn.MSELoss()  # Mean Squared Error for regression
     for epoch in range(epochs):
         print(f"Epoch {epoch + 1}/{epochs}")
         board = chess.Board()
@@ -123,10 +161,14 @@ def train_nn(nn_model, optimizer, epochs=50, batch_size=32):
         # Self-play to generate training data
         for _ in range(batch_size):
             while not board.is_game_over():
-                move = select_best_move(board, nn_model)
+                move = select_best_move(board, nn_model, evaluator)
                 board.push(move)
                 positions.append(board_to_tensor(board))
-                evaluations.append(random.uniform(-1, 1))  # Random target for now
+                
+                # Use Evaluator to get the true evaluation of the position
+                evaluation_score = evaluator.evaluate(board)
+                evaluations.append(evaluation_score)  # Use the evaluator's score as the target
+                
                 if board.is_game_over():
                     break
             board.reset()
@@ -156,12 +198,15 @@ if __name__ == "__main__":
     optimizer = optim.Adam(nn_model.parameters(), lr=0.001)
 
     # Load model if available
-    start_epoch = load_model(nn_model, optimizer,path='chess_nn_model.pth')
+    evaluator = Evaluator()  # Initialize the evaluator
+    start_epoch = load_model(nn_model, optimizer, path='chess_nn_model.pth')
 
     # Train the NN
     print("Training the neural network...")
-    train_nn(nn_model, optimizer, epochs=50)
+    #train_nn(nn_model, optimizer, evaluator, epochs=50)
 
     # Play a game
     print("Playing a game between two instances of the NN...")
-    play_game(nn_model)
+    #play_game(nn_model,evaluator)
+    #play_game_VS_NN(nn_model, evaluator)
+

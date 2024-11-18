@@ -29,7 +29,7 @@ clock = pygame.time.Clock()
 # Initialize the board
 board = chess.Board()
 
-ai = AlphaBeta(depth=5)  
+ai = AlphaBeta(depth=4)  
 
 # Load images
 load_images()
@@ -109,12 +109,12 @@ def main():
             try:
                 ai_move_obj = ai_move(board)
                 board.push(ai_move_obj)
-               
+
                    
             except Exception as e:
                 print(f"Error during AI move: {e}")
                 player_turn = True  # Fallback to avoid game freeze
-
+            player_turn = True
 
         draw_board(screen)
         highlight_squares(screen, board, selected_square)  # Highlight the legal moves

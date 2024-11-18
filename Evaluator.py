@@ -518,9 +518,9 @@ class Evaluator:
         return fork_score
 
 eval = Evaluator()  
-print(eval.evaluate(chess.Board("rnbq1b1r/1p1n1ppp/p2pk3/3N1PP1/8/4B3/PPP2P1P/R2QKB1R b KQ - 0 11")))
+print(eval.evaluate(chess.Board("rnbq1b1r/1p1n1ppp/p2p4/3N1kP1/8/4B3/PPP2P1P/R2QKB1R w KQ - 0 12")))
 
-print(eval.evaluate(chess.Board("rnbq1b1r/1p1n1ppp/p2pk3/5pP1/4PN2/4B3/PPP2P1P/R2QKB1R b KQ - 3 11")))
+#print(eval.evaluate(chess.Board("rnbq1b1r/1p1n1ppp/p2pk3/5pP1/4PN2/4B3/PPP2P1P/R2QKB1R b KQ - 3 11")))
 
-print(eval.evaluate(chess.Board("r3qrk1/pppb2P1/2n5/3p4/8/2N1PN2/PPP2PP1/R2QKB1R b KQ - 0 15")))
+#print(eval.evaluate(chess.Board("r3qrk1/pppb2P1/2n5/3p4/8/2N1PN2/PPP2PP1/R2QKB1R b KQ - 0 15")))
 

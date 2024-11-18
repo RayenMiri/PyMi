@@ -1,0 +1,6 @@
+NNU1.py
+chess_nn_model.pth
+*.csv
+*.xls
+*.xlsx
+*.docx

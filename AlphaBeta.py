@@ -47,6 +47,7 @@ class AlphaBeta:
                 move in self.killer_moves[depth],
                 board.is_castling(move),
                 board.is_capture(move),
+                board.gives_check(move),
                 self.history_heuristic.get((board.piece_at(move.from_square), move.to_square), 0)
             ),
             reverse=True
