@@ -1,6 +1,9 @@
 NNU1.py
-chess_nn_model.pth
+NNU.py
+.gitignore
 *.csv
 *.xls
 *.xlsx
 *.docx
+*.pth
+*.bin

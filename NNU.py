@@ -47,24 +47,26 @@ def evaluate_board(nn_model, board):
     with torch.no_grad():
         return nn_model(tensor_input).item()
 
-def legal_moves_with_evaluation(board, nn_model, evaluator):
-    """Returns a list of legal moves with their evaluations using the Evaluator."""
+def legal_moves_with_evaluation(board, nn_model):
+    """Returns a list of legal moves with their evaluations using the NN."""
     moves = list(board.legal_moves)
     evaluations = []
     for move in moves:
         board.push(move)
-        evaluations.append(evaluator.evaluate(board))  # Use Evaluator to get the score
+        evaluations.append(evaluate_board(nn_model, board))  # NN evaluates the position
         board.pop()
     return list(zip(moves, evaluations))
 
-def select_best_move(board, nn_model, evaluator):
+
+def select_best_move(board, nn_model):
     """Selects the best move using the neural network."""
-    moves_evaluated = legal_moves_with_evaluation(board, nn_model, evaluator)
+    moves_evaluated = legal_moves_with_evaluation(board, nn_model)
     if board.turn:  # White's turn, maximize
         best_move = max(moves_evaluated, key=lambda x: x[1])[0]
     else:  # Black's turn, minimize
         best_move = min(moves_evaluated, key=lambda x: x[1])[0]
     return best_move
+
 
 # ============================
 # Model Save and Load
@@ -96,21 +98,21 @@ def load_model(nn_model, optimizer, path=MODEL_SAVE_PATH):
 # ============================
 # Game Logic and Training
 # ============================
-def play_game(nn_model, evaluator, max_moves=100):
+def play_game(nn_model, max_moves=5):
     """Simulates a single game between two NN players."""
     board = chess.Board("r3qrk1/pppb2P1/2n5/3p4/8/2N1PN2/PPP2PP1/R2QKB1R b KQ - 0 15")
     game = chess.pgn.Game()
     node = game
     while not board.is_game_over() and len(list(board.move_stack)) < max_moves:
-        move = select_best_move(board, nn_model, evaluator)
-        print(board.san(move))
+        move = select_best_move(board, nn_model)
+        print(f"NN plays: {board.san(move)}")
         board.push(move)
-        print(board)
         node = node.add_variation(move)
+        print(board)
     result = board.result()
     print(f"Game over! Result: {result}")
-    print(board)
     return result
+
 
 def play_game_VS_NN(nn_model, evaluator, max_moves=100):
     """Simulates a single game where you play against the NN."""
@@ -161,7 +163,7 @@ def train_nn(nn_model, optimizer, evaluator, epochs=50, batch_size=32):
         # Self-play to generate training data
         for _ in range(batch_size):
             while not board.is_game_over():
-                move = select_best_move(board, nn_model, evaluator)
+                move = select_best_move(board, nn_model)
                 board.push(move)
                 positions.append(board_to_tensor(board))
                 
@@ -203,10 +205,10 @@ if __name__ == "__main__":
 
     # Train the NN
     print("Training the neural network...")
-    #train_nn(nn_model, optimizer, evaluator, epochs=50)
+    train_nn(nn_model, optimizer, evaluator, epochs=50)
 
     # Play a game
     print("Playing a game between two instances of the NN...")
-    #play_game(nn_model,evaluator)
+    play_game(nn_model)
     #play_game_VS_NN(nn_model, evaluator)
 
