@@ -11,7 +11,11 @@ import re
 import os
 from sklearn.model_selection import train_test_split
 
-# 1. Dataset Class
+# Check for GPU availability
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
+# 1. Dataset Class (unchanged)
 class ChessMoveDataset(Dataset):
     def __init__(self, csv_file):
         self.data = pd.read_csv(csv_file)
@@ -83,30 +87,11 @@ class ChessMoveDataset(Dataset):
     
     @staticmethod
     def clean_moves(moves):
-        # Remove comments
         moves = re.sub(r'\{[^}]*\}', '', moves)
-        
-        # Remove annotations
         moves = re.sub(r'[?!]+', '', moves)
-        
-        # Remove move numbers and the dot
-        #moves = re.sub(r'\d+\.\s*', '', moves)
-        
-        # Remove the actual move notations
-        #moves = re.sub(r'\s*([a-h][1-8][x]?[a-h][1-8][+#]?|\S+)\s*', ' ', moves)
-        
-        # Remove game result (last three characters)
-        moves = re.sub(r'\s*(1-0|0-1|1/2-1/2)\s*$', '', moves)  # Matches common game results
-        
-        # Normalize spaces
+        moves = re.sub(r'\s*(1-0|0-1|1/2-1/2)\s*$', '', moves)
         moves = re.sub(r'\s+', ' ', moves).strip()
-        
-        # Remove check/checkmate symbols
-        #moves = moves.replace('#', '').replace('+', '')
-        
-        # Split into moves and filter out empty entries
-        cleaned_moves = [move for move in moves.split() if not move.endswith('.')] 
-        #print(cleaned_moves)
+        cleaned_moves = [move for move in moves.split() if not move.endswith('.')]
         return cleaned_moves
 
 # 2. Neural Network Architecture
@@ -138,14 +123,14 @@ class ChessMoveCNN(nn.Module):
 
 # 3. Training the Model
 def train_model(model, train_loader, val_loader, move_vocab, epochs=10, lr=0.001, model_path='chess_move_model.pth'):
+    model = model.to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     start_epoch = 0
 
-    # Check if the model file exists
     if os.path.exists(model_path):
         print(f"Loading saved model from {model_path}")
-        checkpoint = torch.load(model_path)
+        checkpoint = torch.load(model_path, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint.get('epoch', 0)
@@ -157,7 +142,8 @@ def train_model(model, train_loader, val_loader, move_vocab, epochs=10, lr=0.001
         model.train()
         running_loss = 0.0
         for position, best_move in train_loader:
-            position = position.unsqueeze(1)  # Add channel dimension
+            position = position.unsqueeze(1).to(device)
+            best_move = best_move.to(device)
             optimizer.zero_grad()
 
             outputs = model(position)
@@ -170,7 +156,6 @@ def train_model(model, train_loader, val_loader, move_vocab, epochs=10, lr=0.001
         val_accuracy = evaluate_model(model, val_loader)
         print(f"Epoch {epoch+1}, Loss: {running_loss/len(train_loader):.4f}, Val Accuracy: {val_accuracy:.2f}%")
 
-        # Save the model and move vocab after every epoch
         torch.save({
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
@@ -184,7 +169,8 @@ def evaluate_model(model, val_loader):
     total = 0
     with torch.no_grad():
         for position, best_move in val_loader:
-            position = position.unsqueeze(1)
+            position = position.unsqueeze(1).to(device)
+            best_move = best_move.to(device)
             outputs = model(position)
             _, predicted = torch.max(outputs, 1)
             total += best_move.size(0)
@@ -193,9 +179,9 @@ def evaluate_model(model, val_loader):
 
 # 4. Playing Against AI
 def load_model(model_path='chess_move_model.pth'):
-    checkpoint = torch.load(model_path)
+    checkpoint = torch.load(model_path, map_location=device)
     move_vocab = checkpoint['move_vocab']
-    model = ChessMoveCNN(len(move_vocab))
+    model = ChessMoveCNN(len(move_vocab)).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     return model, move_vocab
@@ -203,58 +189,47 @@ def load_model(model_path='chess_move_model.pth'):
 def get_ai_move(model, board, move_vocab):
     reverse_vocab = {v: k for k, v in move_vocab.items()}
     board_array = ChessMoveDataset.board_to_array(board)
-    board_tensor = torch.tensor(board_array, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    board_tensor = torch.tensor(board_array, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(device)
 
     with torch.no_grad():
         outputs = model(board_tensor)
-        # Get probabilities instead of just the index
-        probabilities = torch.softmax(outputs, dim=1)[0]  
+        probabilities = torch.softmax(outputs, dim=1)[0]
 
-        # Sort moves by probability and try them until a legal move is found
-        sorted_moves = sorted(enumerate(probabilities.tolist()), key=lambda x: x[1], reverse=True)
+        sorted_moves = sorted(enumerate(probabilities.cpu().tolist()), key=lambda x: x[1], reverse=True)
         for move_index, _ in sorted_moves:
             best_move_san = reverse_vocab[move_index]
             try:
-                # Validate the move before returning it
-                board.parse_san(best_move_san)  
+                board.parse_san(best_move_san)
                 return best_move_san
             except:
-                pass  # Try the next most probable move
+                pass
 
-        # If no legal moves are found, return a null move (resign)
         return "0000"
 
 def play_against_ai():
     model, move_vocab = load_model()
     board = chess.Board()
     print("Welcome to Chess AI!")
-    print("Enter your moves in SAN format (e.g., e2e4). Type 'quit' to exit.")
-    #ai_move = get_ai_move(model, board, move_vocab)
-    #board.push_san(ai_move)
-    #print(f"AI move: {ai_move}")
+    print("Enter your moves in SAN format (e.g., e4). Type 'quit' to exit.")
+
     while not board.is_game_over():
         print("\nCurrent board:")
         print(board)
 
         if board.turn == chess.WHITE:
-            #move_san = input("Your move: ")
-            #if move_san.lower() == 'quit':
-            #    break
-            
-            ai_move = get_ai_move(model, board, move_vocab)
-            print(f"white move: {ai_move}")
-            board.push_san(ai_move)
-            """try:
-                #move = board.parse_san(ai_move)
-                #board.push_san(ai_move)
+            move_san = input("Your move: ")
+            if move_san.lower() == 'quit':
+                break
+            try:
+                board.push_san(move_san)
             except:
-                print("Invalid move. Try again.")"""
+                print("Invalid move. Try again.")
+                continue
         else:
             print("AI is thinking...")
-            
             ai_move = get_ai_move(model, board, move_vocab)
             board.push_san(ai_move)
-            print(f"black move: {ai_move}")
+            print(f"AI move: {ai_move}")
 
     print("\nGame Over")
     print("Final board:")
@@ -263,7 +238,7 @@ def play_against_ai():
 
 # 5. Main Execution
 def main():
-    csv_file = './data/200KRowsGames/chess_games_1.csv'
+    csv_file = './data/10KRowsGames/chess_games_155.csv'
     dataset = ChessMoveDataset(csv_file)
     if len(dataset) == 0:
         print("No valid games found in the dataset. Exiting...")
@@ -274,12 +249,13 @@ def main():
     train_dataset = torch.utils.data.Subset(dataset, train_data)
     val_dataset = torch.utils.data.Subset(dataset, val_data)
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True)
 
     model = ChessMoveCNN(len(dataset.move_vocab))
     train_model(model, train_loader, val_loader, dataset.move_vocab, epochs=10, lr=0.001)
 
 if __name__ == "__main__":
-    #main()
-    play_against_ai()
+    main()
+    # Uncomment the line below to play against the AI after training
+    # play_against_ai()
