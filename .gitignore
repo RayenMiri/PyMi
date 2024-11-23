@@ -1,6 +1,4 @@
-NNU1.py
-NNU.py
-.gitignore
+*.gitignore
 *.csv
 *.xls
 *.xlsx

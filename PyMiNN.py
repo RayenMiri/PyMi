@@ -22,7 +22,9 @@ class ChessMoveDataset(Dataset):
         self.positions = []
         self.best_moves = []
         self.move_vocab = {}
+        self._process_data()
 
+    def _process_data(self):
         for idx, row in self.data.iterrows():
             try:
                 moves = self.clean_moves(row['AN'])
@@ -131,7 +133,22 @@ def train_model(model, train_loader, val_loader, move_vocab, epochs=10, lr=0.001
     if os.path.exists(model_path):
         print(f"Loading saved model from {model_path}")
         checkpoint = torch.load(model_path, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
+        saved_vocab_size = checkpoint['model_state_dict']['fc2.weight'].shape[0]
+        current_vocab_size = len(move_vocab)
+
+        if saved_vocab_size != current_vocab_size:
+            print(f"Vocabulary size mismatch. Saved: {saved_vocab_size}, Current: {current_vocab_size}")
+            print("Reinitializing the output layer...")
+            model.fc2 = nn.Linear(256, current_vocab_size).to(device)
+            
+            # Load compatible weights
+            model_dict = model.state_dict()
+            pretrained_dict = {k: v for k, v in checkpoint['model_state_dict'].items() if k in model_dict and v.shape == model_dict[k].shape}
+            model_dict.update(pretrained_dict)
+            model.load_state_dict(model_dict)
+        else:
+            model.load_state_dict(checkpoint['model_state_dict'])
+
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint.get('epoch', 0)
         print(f"Resuming training from epoch {start_epoch + 1}")
@@ -217,7 +234,7 @@ def play_against_ai():
         print(board)
 
         if board.turn == chess.WHITE:
-            move_san = input("Your move: ")
+            move_san = get_ai_move(model, board, move_vocab)
             if move_san.lower() == 'quit':
                 break
             try:
@@ -238,7 +255,7 @@ def play_against_ai():
 
 # 5. Main Execution
 def main():
-    csv_file = './data/10KRowsGames/chess_games_155.csv'
+    csv_file = './data/200KRowsGames/chess_games_1.csv'
     dataset = ChessMoveDataset(csv_file)
     if len(dataset) == 0:
         print("No valid games found in the dataset. Exiting...")
@@ -249,8 +266,8 @@ def main():
     train_dataset = torch.utils.data.Subset(dataset, train_data)
     val_dataset = torch.utils.data.Subset(dataset, val_data)
 
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, num_workers=0, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, num_workers=0, pin_memory=True)
 
     model = ChessMoveCNN(len(dataset.move_vocab))
     train_model(model, train_loader, val_loader, dataset.move_vocab, epochs=10, lr=0.001)
